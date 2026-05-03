@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { generateScenarios, scamTwinTurn } from '../utils/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { generateScenarios } from '../utils/api';
 
 const DIFFICULTY_CONFIG = {
   elderly: [
@@ -397,191 +397,306 @@ function ScenarioPicker({ scenarios, isKids, loadError, refreshing, onPick, onRe
 
 // ─── Chat Room ─────────────────────────────────────────────────────────────
 function ChatRoom({ scenario, isKids, profile, difficulty, onBack, onNav }) {
-  const [messages, setMessages] = useState(() =>
-    scenario.opener.map((t, i) => ({ id: i + 1, role: 'scammer', text: t }))
+  const [messages, setMessages] = React.useState(() =>
+    scenario.opener.map((t, i) => ({ id: i + 1, from: 'scammer', text: t }))
   );
-  const [spotted, setSpotted] = useState([]);
-  const [suggestions, setSuggestions] = useState([
-    isKids ? "Who are you really? 🤔" : "Can I call you back on the official number?",
-    isKids ? "I never share my password" : "I won't give personal details over the phone",
-    isKids ? "This sounds fake" : "Let me check this myself first",
-    isKids ? "Yeah sure! 😊" : "Okay, what do you need from me?",
-  ]);
-  const [typing, setTyping] = useState(false);
-  const [resolved, setResolved] = useState(false);
-  const [win, setWin] = useState(false);
-  const [debrief, setDebrief] = useState(null);
-  const [customInput, setCustomInput] = useState('');
-  const [showCustom, setShowCustom] = useState(false);
-  const [history, setHistory] = useState([]); // for API
-  const bodyRef = useRef(null);
+  const [spotted, setSpotted] = React.useState([]);
+  const [typing, setTyping] = React.useState(false);
+  const [resolved, setResolved] = React.useState(false);
+  const [customText, setCustomText] = React.useState('');
+  const [showCustom, setShowCustom] = React.useState(false);
+  const [apiHistory, setApiHistory] = React.useState([]);
+  const [turnCount, setTurnCount] = React.useState(0);
+  const [replies, setReplies] = React.useState(
+    scenario.replies || [
+      { id: 1, text: isKids ? "Who are you really? 🤔" : "Can I call you back on the official number?", spots: [] },
+      { id: 2, text: isKids ? "I never share my password" : "I won't give personal details over the phone", spots: [] },
+      { id: 3, text: isKids ? "This sounds fake" : "Let me check this myself first", spots: [] },
+      { id: 4, text: isKids ? "Yeah sure! 😊" : "Okay, what do you need from me?", spots: [] },
+    ]
+  );
+  const bodyRef = React.useRef(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [messages, typing]);
 
-  const sendMessage = async (text) => {
-    if (resolved || typing || !text.trim()) return;
+  // ── Build the system prompt for this scenario ──────────────────────────
+  const buildSystemPrompt = () => {
+    const tacticsDesc = scenario.tactics
+      .map(t => `- ${t.id}: ${t.name} (${t.desc})`)
+      .join('\n');
 
-    const userMsg = { id: Date.now(), role: 'user', text };
-    setMessages(m => [...m, userMsg]);
-    setCustomInput('');
+    const profileInstructions = isKids
+      ? `You are playing a trickster character in a SAFE EDUCATIONAL game for children.
+Use age-appropriate language — no adult threats, no graphic content.
+Sound like a real peer or online contact a child might encounter.
+Be persuasive and friendly-seeming, not scary.
+When the child pushes back wisely, stay in character but adapt — try a different angle.
+If the child clearly calls out your trick or says they'll tell a parent, set game_over to true and break character warmly.`
+      : `You are playing a convincing scammer in a SAFE EDUCATIONAL simulation for adults and elderly users.
+Sound exactly like a real ${scenario.title} — use appropriate language, terminology and pressure tactics.
+Be persuasive, not aggressive. Adapt to what the user says — never give the same response twice.
+When the user pushes back, try a different angle. Apply escalating pressure but stay believable.
+If the user clearly identifies the scam and disengages safely, set game_over to true.`;
+
+    return `${profileInstructions}
+
+SCENARIO: ${scenario.title}
+CONTACT SHOWN TO USER: ${scenario.contact}
+OPENER ALREADY SENT: ${scenario.opener.join(' | ')}
+
+TACTICS YOU ARE USING IN THIS SCENARIO:
+${tacticsDesc}
+
+CRITICAL RULES:
+1. Never repeat the same response twice. Every reply must be unique and react to what the user actually said.
+2. If the user says something you didn't expect, respond naturally to their specific words.
+3. Track which tactics the user's message exposes or counters. Be generous — if they push back on urgency, mark urgency as spotted.
+4. After ${isKids ? '4' : '5'} exchanges OR if the user spotted 3+ tactics confidently, set game_over to true.
+5. If user gives you what you want (password, money, details), set game_over true with win: false and show a brief educational payoff.
+
+Return ONLY valid JSON — no markdown, no extra text:
+{
+  "reply": "<your in-character response, completely unique to what the user just said>",
+  "game_over": false,
+  "win": false,
+  "spotted_tactic_ids": ["<tactic id>"],
+  "debrief": null
+}
+
+When game_over is true and win is true (user escaped):
+  "reply": "<break character — congratulate them and briefly explain what you were doing>",
+  "debrief": "<2 sentences: what tactics you used and what the user did right>"
+
+When game_over is true and win is false (user complied):
+  "reply": "<brief in-character payoff — then immediately break character and explain what just happened educationally>",
+  "debrief": "<2 sentences: what tactic caught them and what to do differently>"`;
+  };
+
+  // ── Call Claude API directly ───────────────────────────────────────────
+  const callClaude = async (userMessage) => {
+    // Build conversation for Claude
+    const newHistory = [
+      ...apiHistory,
+      { role: 'user', content: userMessage }
+    ];
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': import.meta.env.VITE_ANTHROPIC_KEY || '',
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 500,
+          system: buildSystemPrompt(),
+          messages: newHistory,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`API ${response.status}`);
+      const data = await response.json();
+
+      // Parse JSON from Claude's response
+      let raw = data.content[0].text.trim();
+      if (raw.startsWith('```')) {
+        raw = raw.split('```')[1];
+        if (raw.startsWith('json')) raw = raw.slice(4);
+      }
+      const result = JSON.parse(raw.trim());
+
+      // Update history for next turn (include Claude's reply)
+      setApiHistory([
+        ...newHistory,
+        { role: 'assistant', content: data.content[0].text }
+      ]);
+
+      return result;
+
+    } catch (err) {
+      console.error('Claude API error:', err);
+      // Graceful fallback — use scenario pressure/payoff if API fails
+      return {
+        reply: scenario.tactics ? scenario.tactics[0]?.name || 'Please continue...' : 'Please continue...',
+        game_over: false,
+        win: false,
+        spotted_tactic_ids: [],
+        debrief: null,
+      };
+    }
+  };
+
+  // ── Send a message (from chip or custom input) ─────────────────────────
+  const sendMessage = async (userText) => {
+    if (resolved || typing || !userText.trim()) return;
+
+    // Add user message to UI immediately
+    setMessages(m => [...m, { id: Date.now(), from: 'user', text: userText }]);
+    setCustomText('');
     setShowCustom(false);
     setTyping(true);
 
-    const updatedHistory = [...history, { role: 'user', text }];
+    const newTurnCount = turnCount + 1;
+    setTurnCount(newTurnCount);
 
-    try {
-      const data = await scamTwinTurn(scenario, history, text, profile, difficulty);
+    // Call Claude
+    const result = await callClaude(userText);
+    setTyping(false);
 
-      setTyping(false);
-
-      // Update spotted tactics
-      if (data.spotted_tactic_ids?.length > 0) {
-        setSpotted(prev => [...new Set([...prev, ...data.spotted_tactic_ids])]);
-      }
-
-      // Add scammer reply or game-over system message
-      const replyMsg = {
-        id: Date.now() + 1,
-        role: data.game_over ? 'system' : 'scammer',
-        text: data.scammer_reply,
-      };
-      setMessages(m => [...m, replyMsg]);
-
-      // Update history for next turn
-      setHistory([...updatedHistory, { role: 'scammer', text: data.scammer_reply }]);
-
-      // Update suggestions for next turn
-      if (data.suggested_replies?.length > 0 && !data.game_over) {
-        setSuggestions(data.suggested_replies);
-      }
-
-      if (data.game_over) {
-        setResolved(true);
-        setWin(data.win);
-        if (data.debrief) setDebrief(data.debrief);
-      }
-
-    } catch (err) {
-      setTyping(false);
-      // Fallback: simple pressure response
-      const fallbackReply = isKids
-        ? "come on!! just do it already 😤"
-        : "I understand your hesitation, but every second counts here. Your money is at risk.";
-      setMessages(m => [...m, { id: Date.now() + 1, role: 'scammer', text: fallbackReply }]);
-      setHistory([...updatedHistory, { role: 'scammer', text: fallbackReply }]);
+    // Update spotted tactics
+    if (result.spotted_tactic_ids?.length > 0) {
+      setSpotted(prev => {
+        const fresh = result.spotted_tactic_ids.filter(id => !prev.includes(id));
+        return [...prev, ...fresh];
+      });
     }
+
+    // Add scammer reply or system message
+    const from = result.game_over ? 'system' : 'scammer';
+    setMessages(m => [...m, { id: Date.now() + 1, from, text: result.reply }]);
+
+    // Add debrief as a second system message if present
+    if (result.debrief) {
+      setTimeout(() => {
+        setMessages(m => [...m, {
+          id: Date.now() + 2,
+          from: 'system',
+          text: result.win
+            ? (isKids ? `🏆 ${result.debrief}` : `✓ ${result.debrief}`)
+            : (isKids ? `⚠️ ${result.debrief}` : `⚠️ ${result.debrief}`)
+        }]);
+      }, 600);
+    }
+
+    if (result.game_over) setResolved(true);
+  };
+
+  // ── Handle quick chip click ────────────────────────────────────────────
+  const handleChip = (r) => sendMessage(r.text);
+
+  // ── Handle custom input ────────────────────────────────────────────────
+  const handleCustomSend = () => sendMessage(customText);
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCustomSend(); }
   };
 
   return (
     <div className="page-enter">
-      {/* Header bar */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        marginBottom: 18, flexWrap: 'wrap',
-      }}>
+      <div className="row" style={{ marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn-secondary" onClick={onBack}>← Scenarios</button>
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1 }}></div>
         <span className="eyebrow-pill">
           <span style={{ fontSize: 14 }}>{scenario.emoji}</span>
           {scenario.title}
         </span>
-        {(() => {
-          const diffConf = (DIFFICULTY_CONFIG[profile] || DIFFICULTY_CONFIG.elderly)
-            .find(d => d.id === difficulty);
-          return diffConf ? (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10,
-              fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
-              padding: '4px 10px', borderRadius: 999,
-              background: diffConf.tagColour + '18',
-              color: diffConf.tagColour, border: `1px solid ${diffConf.tagColour}40`,
-            }}>
-              {diffConf.emoji} {diffConf.label}
-            </span>
-          ) : null;
-        })()}
-        {isKids && (
-          <span className="xp-pill">+{spotted.length * 15} XP</span>
-        )}
       </div>
 
-      {/* Main grid */}
-      <div className="chatroom-grid" style={{
-        display: 'grid',
-        gridTemplateColumns: '1.4fr 1fr',
-        gap: 32, alignItems: 'start',
-      }}>
-
-        {/* Left: Chat */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 32, alignItems: 'start' }}>
         <div className="chat-shell">
+          <div className="simulation-banner">
+            Practice scenario — AI-generated · Not a real conversation · Do not screenshot or share
+          </div>
           <div className="chat-head">
             <div className="scammer-avatar">{scenario.avatar}</div>
             <div>
               <div className="name">{scenario.contact}</div>
-              <div className="sub">SAFE PRACTICE · AI-GENERATED · NOT A REAL PERSON</div>
+              <div className="sub">SAFE PRACTICE · AI-POWERED · NOT A REAL PERSON</div>
             </div>
+            {isKids && (
+              <span className="xp-pill" style={{ marginLeft: 'auto' }}>
+                +{spotted.length * 15} XP
+              </span>
+            )}
           </div>
 
           <div className="chat-body" ref={bodyRef}>
-            {messages.map(m => (
-              m.role === 'system'
-                ? <div key={m.id} className="chat-bubble system">{m.text}</div>
-                : <div key={m.id} className={`chat-bubble ${m.role}`}>{m.text}</div>
-            ))}
+            {messages.map(m => {
+              if (m.from === 'system') {
+                return <div key={m.id} className="chat-bubble system">{m.text}</div>;
+              }
+              if (m.from === 'scammer') {
+                return (
+                  <div key={m.id} className="scammer-bubble-wrap">
+                    <div
+                      className="chat-bubble scammer"
+                      style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+                    >
+                      {m.text}
+                    </div>
+                    <div className="scammer-watermark">
+                      Educational simulation · Truthly · Not a real message
+                    </div>
+                  </div>
+                );
+              }
+              return <div key={m.id} className="chat-bubble user">{m.text}</div>;
+            })}
             {typing && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div className="typing"><span /><span /><span /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                <div className="typing"><span></span><span></span><span></span></div>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
-                  {isKids ? 'typing...' : 'Scammer is typing…'}
+                  {isKids ? 'typing...' : 'scammer is typing…'}
                 </span>
               </div>
             )}
           </div>
 
-          {/* Action area */}
           <div className="chat-actions">
             {!resolved ? (
               <>
-                {/* AI-generated suggestion chips */}
-                {!showCustom && suggestions.map((s, i) => (
+                {/* Quick-reply chips — always shown */}
+                {!showCustom && replies.map(r => (
                   <button
-                    key={i}
+                    key={r.id}
                     className="quick-chip"
-                    onClick={() => sendMessage(s)}
+                    onClick={() => handleChip(r)}
+                    disabled={typing}
                     style={{
-                      // Last chip is the "bad" option — style differently
-                      ...(i === suggestions.length - 1 ? {
-                        opacity: 0.6,
+                      opacity: typing ? 0.5 : 1,
+                      // Visually distinguish the "bad" option (no spots)
+                      ...(r.spots?.length === 0 ? {
                         borderStyle: 'dashed',
+                        opacity: typing ? 0.4 : 0.65,
                       } : {})
                     }}
                   >
-                    {s}
+                    {r.text}
                   </button>
                 ))}
 
                 {/* Custom input toggle */}
                 {showCustom ? (
-                  <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                  <div style={{ display: 'flex', gap: 8, width: '100%', marginTop: 4 }}>
                     <input
                       autoFocus
-                      value={customInput}
-                      onChange={e => setCustomInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && sendMessage(customInput)}
-                      placeholder={isKids ? "Type your own reply…" : "Type your own response…"}
+                      value={customText}
+                      onChange={e => setCustomText(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={isKids
+                        ? 'Type your own reply…'
+                        : 'Type anything — Claude will respond to exactly what you say…'}
+                      disabled={typing}
                       style={{
-                        flex: 1, padding: '10px 14px', borderRadius: 12,
+                        flex: 1,
+                        padding: '10px 14px',
+                        borderRadius: 12,
                         border: '1.5px solid var(--cream-dark)',
-                        fontFamily: 'var(--font-body)', fontSize: 14,
-                        background: 'var(--cream)', outline: 'none',
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 14,
+                        background: 'var(--cream)',
+                        outline: 'none',
+                        color: 'var(--charcoal)',
                       }}
                     />
                     <button
                       className="btn btn-primary"
-                      onClick={() => sendMessage(customInput)}
-                      disabled={!customInput.trim()}
+                      onClick={handleCustomSend}
+                      disabled={!customText.trim() || typing}
                       style={{ padding: '10px 16px', minHeight: 'unset' }}
                     >
                       Send
@@ -589,7 +704,7 @@ function ChatRoom({ scenario, isKids, profile, difficulty, onBack, onNav }) {
                     <button
                       className="btn btn-secondary"
                       onClick={() => setShowCustom(false)}
-                      style={{ padding: '10px 14px', minHeight: 'unset' }}
+                      style={{ padding: '10px 12px', minHeight: 'unset' }}
                     >
                       ✕
                     </button>
@@ -598,9 +713,12 @@ function ChatRoom({ scenario, isKids, profile, difficulty, onBack, onNav }) {
                   <button
                     className="quick-chip"
                     onClick={() => setShowCustom(true)}
+                    disabled={typing}
                     style={{
                       border: '1.5px dashed var(--cream-dark)',
-                      color: 'var(--muted)', fontSize: 12,
+                      color: 'var(--muted)',
+                      fontSize: 12,
+                      opacity: typing ? 0.4 : 1,
                     }}
                   >
                     ✏️ {isKids ? 'Type my own reply' : 'Type a custom response'}
@@ -608,126 +726,53 @@ function ChatRoom({ scenario, isKids, profile, difficulty, onBack, onNav }) {
                 )}
               </>
             ) : (
-              <div style={{
-                display: 'flex', gap: 10, flexWrap: 'wrap', width: '100%',
-              }}>
-                <button className="btn btn-primary" onClick={onBack}>
-                  ← Try another scenario
-                </button>
-                {onNav && (
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => onNav('dna')}
-                  >
-                    🧬 Get my Scam DNA
-                  </button>
-                )}
-              </div>
+              <button className="btn btn-primary" onClick={onBack} style={{ minHeight: 44 }}>
+                ← Try another scenario
+              </button>
             )}
           </div>
+          {resolved && (
+            <p className="debrief-notice">
+              The messages above were part of an educational simulation.
+              They do not represent real communications. Do not screenshot or share them.
+            </p>
+          )}
         </div>
 
-        {/* Right: Tactics + Debrief */}
-        <div>
-          {/* Tactic tracker */}
-          <div className="chat-side">
-            <h4>{isKids ? 'Tricks to spot' : 'Tactics in play'}</h4>
-            <div className="tactic-list">
-              {(() => {
-                const tacticCount = scenario.tactics?.length || 4;
-                const hiddenCount = difficulty === 'expert'
-                  ? tacticCount                      // all hidden in expert
-                  : difficulty === 'realistic'
-                    ? Math.min(1, tacticCount - 2)   // 1 hidden in realistic
-                    : 0;                             // none hidden in gentle
-
-                return scenario.tactics.map((t, i) => {
-                  const ok = spotted.includes(t.id);
-                  const isHidden = !ok && i >= (tacticCount - hiddenCount);
-                  return (
-                    <div key={t.id} className={`tactic-item${ok ? ' spotted' : ''}${isHidden ? ' hidden-tactic' : ''}`}>
-                      <span className="check">{ok ? '✓' : isHidden ? '🔒' : ''}</span>
-                      <div>
-                        <div className="name">{isHidden ? '???' : t.name}</div>
-                        <div className="desc">{isHidden ? 'Spot this tactic to reveal it' : t.desc}</div>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-            <p className="muted" style={{ fontSize: 12, marginTop: 14, lineHeight: 1.6 }}>
-              {isKids
-                ? 'Pick replies that ask smart questions. Spot 3 tricks to win!'
-                : 'Responses that probe or refuse expose tactics. Claude judges in real time.'}
-            </p>
+        <div className="chat-side">
+          <h4>{isKids ? 'Tricks to spot' : 'Tactics in play'}</h4>
+          <div className="tactic-list">
+            {scenario.tactics.map(t => {
+              const ok = spotted.includes(t.id);
+              return (
+                <div key={t.id} className={'tactic-item' + (ok ? ' spotted' : '')}>
+                  <span className="check">{ok ? '✓' : ''}</span>
+                  <div>
+                    <div className="name">{t.name}</div>
+                    <div className="desc">{t.desc}</div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-
-          {/* Debrief card — shown after game ends */}
-          {resolved && (
-            <div className="card page-enter" style={{
-              marginTop: 16,
-              borderLeft: `4px solid ${win ? 'var(--safe)' : 'var(--danger)'}`,
+          <div className="spacer"></div>
+          <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+            {isKids
+              ? 'Pick replies that ask smart questions. Or type your own — Claude responds to exactly what you say.'
+              : 'Replies that probe or refuse expose tactics. Type anything — the AI adapts to you specifically.'
+            }
+          </p>
+          {turnCount > 0 && (
+            <div style={{
+              marginTop: 12,
+              padding: '8px 12px',
+              background: 'var(--cream-mid)',
+              borderRadius: 10,
+              fontSize: 12,
+              color: 'var(--muted)',
+              fontFamily: 'var(--font-mono)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                <span style={{ fontSize: 36 }}>
-                  {spotted.length >= 3 ? '🏆' : spotted.length >= 2 ? '🛡️' : '⚠️'}
-                </span>
-                <div>
-                  <div style={{
-                    fontFamily: 'var(--font-display)', fontSize: 18,
-                    fontWeight: 900, letterSpacing: '-0.3px',
-                  }}>
-                    {win
-                      ? (isKids ? 'You spotted the trick!' : 'Scam pattern identified')
-                      : (isKids ? 'The trick got you this time' : 'The scammer succeeded')}
-                  </div>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 10,
-                    letterSpacing: 1, color: 'var(--muted)',
-                    textTransform: 'uppercase', marginTop: 3,
-                  }}>
-                    {spotted.length} / {scenario.tactics.length} tactics spotted
-                  </div>
-                </div>
-              </div>
-
-              {/* AI debrief text */}
-              {debrief && (
-                <div style={{
-                  background: 'var(--cream)', borderRadius: 10,
-                  padding: '12px 14px', fontSize: 13, lineHeight: 1.7,
-                  color: 'var(--charcoal)', fontStyle: 'italic',
-                  borderLeft: '3px solid var(--accent)', marginBottom: 14,
-                }}>
-                  {debrief}
-                </div>
-              )}
-
-              {/* Tactic breakdown */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {scenario.tactics.map(t => {
-                  const ok = spotted.includes(t.id);
-                  return (
-                    <div key={t.id} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 10,
-                      padding: '9px 12px', borderRadius: 10, fontSize: 12,
-                      background: ok ? 'rgba(76,175,130,0.08)' : 'rgba(230,57,70,0.06)',
-                    }}>
-                      <span style={{
-                        fontWeight: 900, fontSize: 13, flexShrink: 0,
-                        color: ok ? 'var(--safe)' : 'var(--danger)',
-                      }}>
-                        {ok ? '✓' : '✗'}
-                      </span>
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{t.name}</div>
-                        <div style={{ color: 'var(--muted)', lineHeight: 1.5 }}>{t.desc}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              Turn {turnCount} · {spotted.length}/{scenario.tactics.length} tactics spotted
             </div>
           )}
         </div>

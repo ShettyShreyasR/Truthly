@@ -789,11 +789,12 @@ input, textarea { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: white;
+  color: var(--charcoal);
+  background: rgba(255, 183, 3, 0.08);
 }
-.verdict-head.scam { background: var(--danger); }
-.verdict-head.suspicious { background: var(--amber); color: var(--charcoal); }
-.verdict-head.safe { background: var(--safe); }
+.verdict-head.high_concern { border-left: 4px solid var(--amber); }
+.verdict-head.worth_checking { border-left: 4px solid var(--amber); }
+.verdict-head.looks_reasonable { border-left: 4px solid var(--safe); }
 
 .verdict-head h3 {
   font-family: var(--font-display);
@@ -803,27 +804,6 @@ input, textarea { font-family: inherit; }
   letter-spacing: -0.5px;
   display: flex; align-items: center; gap: 10px;
 }
-.confidence-ring {
-  width: 56px; height: 56px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 700;
-  position: relative;
-  color: white;
-}
-[data-theme="kids"] .confidence-ring { font-family: var(--font-body); font-weight: 800; }
-.confidence-ring::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  background: var(--danger);
-  border-radius: 50%;
-}
-.verdict-head.suspicious .confidence-ring::before { background: var(--amber); }
-.verdict-head.safe .confidence-ring::before { background: var(--safe); }
-.confidence-ring span { position: relative; z-index: 1; }
 
 .verdict-body { padding: 28px; }
 .tactic-badge {
@@ -849,7 +829,7 @@ input, textarea { font-family: inherit; }
 }
 .flag-row:last-of-type { border-bottom: none; }
 .flag-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.flag-dot.high { background: var(--danger); }
+.flag-dot.high { background: #854F0B; }
 .flag-dot.med { background: var(--amber); }
 .flag-dot.low { background: var(--safe); }
 .flag-row .flag-name { flex: 1; }
@@ -861,7 +841,7 @@ input, textarea { font-family: inherit; }
   text-transform: uppercase;
 }
 [data-theme="kids"] .flag-row .flag-level { font-family: var(--font-body); font-weight: 800; letter-spacing: 0.5px; }
-.flag-row .flag-level.high { color: var(--danger); }
+.flag-row .flag-level.high { color: #854F0B; }
 .flag-row .flag-level.med { color: var(--amber); }
 .flag-row .flag-level.low { color: var(--safe); }
 
@@ -2425,4 +2405,92 @@ input, textarea { font-family: inherit; }
 @media (max-width: 480px) {
   .panic-incident-btn { font-size: 13px; padding: 12px 14px; }
   .panic-script-text { font-size: 16px; }
+}
+
+/* ── Watermarks ── */
+
+.scammer-bubble-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+
+.scammer-watermark {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+  letter-spacing: 0.3px;
+  padding-left: 4px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.simulation-banner {
+  background: rgba(255, 183, 3, 0.08);
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--charcoal);
+  text-align: center;
+  font-style: italic;
+  margin-bottom: 12px;
+  user-select: none;
+}
+
+.debrief-notice {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  line-height: 1.6;
+  border-top: 1px solid var(--cream-dark);
+  padding-top: 10px;
+  margin-top: 12px;
+  text-align: center;
+}
+
+.detector-notice {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  line-height: 1.6;
+  padding: 10px 12px;
+  background: var(--cream);
+  border-radius: 8px;
+  border-left: 3px solid var(--cream-dark);
+  margin-top: 12px;
+}
+
+/* ── Footer & Privacy ── */
+
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 16px 24px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--cream-dark);
+  margin-top: 48px;
+}
+
+.forget-btn {
+  background: none;
+  border: 1px solid var(--cream-dark);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.forget-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }

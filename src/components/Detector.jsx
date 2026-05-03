@@ -49,15 +49,15 @@ function Detector({ profile, onTryTwin, onNav, apiStatus, onContextChange }) {
 
   const MOCK_VERDICTS = {
     default: {
-      level: 'scam',
-      confidence: 89,
-      tactic: 'Demo Mode — Connect API for real analysis',
+      level: 'high_concern',
+      severity: 'high_concern',
+      tactic: 'urgency pressure',
       flags: [
-        { name: 'DEMO: Urgency language detected', level: 'high' },
-        { name: 'DEMO: Suspicious sender pattern', level: 'high' },
-        { name: 'DEMO: Requests personal information', level: 'med' },
+        { name: 'Urgency language: "within 24 hours"', level: 'high' },
+        { name: 'Suspicious sender: unusual email domain', level: 'high' },
+        { name: 'Requests for personal information', level: 'med' },
       ],
-      explanation: 'This is a demo result. Connect the Truthly API for real AI-powered analysis.',
+      explanation: isKids ? 'This message has a few things that are worth checking with a grown-up. Asking for personal information is something real apps never do.' : 'This message uses patterns often seen in scams — the urgency and request for details are worth checking. Always call the official number yourself rather than one in the message.',
       what_to_do: ['Do not click any links', 'Verify by calling the official number', 'Report to Action Fraud: 0300 123 2040'],
     }
   };
@@ -93,11 +93,23 @@ function Detector({ profile, onTryTwin, onNav, apiStatus, onContextChange }) {
   let vc = null;
   if (verdict) {
     const verdictConfig = {
-      scam:       { icon: '🚨', label: isKids ? 'Tricky message!' : 'Scam detected' },
-      suspicious: { icon: '⚠️', label: isKids ? 'Bit suspicious...' : 'Looks suspicious' },
-      safe:       { icon: '✅', label: isKids ? 'Looks okay!' : 'Looks safe' },
+      high_concern: {
+        icon: '⚠️',
+        label: isKids ? 'Worth checking with a grown-up' : 'Worth checking — some patterns here',
+        colour: 'var(--amber)',
+      },
+      worth_checking: {
+        icon: '🔍',
+        label: isKids ? 'Something feels a bit off' : 'A few things to look into',
+        colour: 'var(--amber)',
+      },
+      looks_reasonable: {
+        icon: '✓',
+        label: isKids ? 'Looks okay — always good to check' : 'Nothing obvious — still worth verifying',
+        colour: 'var(--safe)',
+      },
     };
-    vc = verdictConfig[verdict.level] || verdictConfig.scam;
+    vc = verdictConfig[verdict.level] || verdictConfig.worth_checking;
   }
 
   return (
@@ -208,14 +220,17 @@ function Detector({ profile, onTryTwin, onNav, apiStatus, onContextChange }) {
 
               {verdict && (
                 <div className="verdict page-enter">
-                  <div className={'verdict-head ' + verdict.level}>
+                  <div className={'verdict-head ' + verdict.level} style={{
+                    borderLeft: `4px solid ${vc.colour || 'var(--amber)'}`,
+                  }}>
                     <h3>
                       <span>{vc.icon}</span> {vc.label}
                     </h3>
-                    <span className="confidence-ring"><span>{verdict.confidence}%</span></span>
                   </div>
                   <div className="verdict-body">
-                    <span className="tactic-badge">⚡ {verdict.tactic}</span>
+                    {verdict.tactic && (
+                      <span className="tactic-badge">⚡ {verdict.tactic}</span>
+                    )}
                     <div>
                       {verdict.flags.map((f, i) => (
                         <div key={i} className="flag-row">
@@ -228,7 +243,12 @@ function Detector({ profile, onTryTwin, onNav, apiStatus, onContextChange }) {
                     <div className="explanation-box">
                       "{verdict.explanation}"
                     </div>
-                    
+
+                    <div className="detector-notice">
+                      Truthly highlights patterns for you to consider — it does not confirm whether a message is or is not a scam.
+                      Always verify directly with the organisation using contact details you find yourself.
+                    </div>
+
                     {verdict.what_to_do && verdict.what_to_do.length > 0 && (
                       <div style={{ marginTop: 16, marginBottom: 8 }}>
                         <div style={{ 

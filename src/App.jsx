@@ -141,6 +141,18 @@ function App() {
         detectorContext={detectorContext}
         onNav={goto}
       />
+
+      <footer className="app-footer">
+        <span>No accounts. No tracking.</span>
+        <span>Messages are sent to Claude for pattern analysis and are not stored by Truthly.</span>
+        <button className="forget-btn" onClick={() => {
+          localStorage.clear();
+          sessionStorage.clear();
+          window.location.reload();
+        }}>
+          Forget me
+        </button>
+      </footer>
     </div>
   );
 }
