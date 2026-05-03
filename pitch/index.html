@@ -378,9 +378,11 @@ html, body {
   });
 
   function go(n) {
+    const next = Math.max(0, Math.min(n, slides.length - 1));
+    if (next === cur) return;
     slides[cur].classList.remove('active');
     dotsEl.children[cur].classList.remove('active');
-    cur = Math.max(0, Math.min(n, slides.length - 1));
+    cur = next;
     slides[cur].classList.add('active');
     dotsEl.children[cur].classList.add('active');
     numEl.textContent = (cur + 1) + ' / ' + slides.length;
