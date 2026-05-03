@@ -483,23 +483,33 @@ When game_over is true and win is false (user complied):
     ];
 
     try {
+      const apiKey = import.meta.env.VITE_ANTHROPIC_KEY;
+
+      if (!apiKey || apiKey.includes('your_anthropic_api_key')) {
+        throw new Error('Anthropic API key not configured. Please set VITE_ANTHROPIC_KEY in .env.local');
+      }
+
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': import.meta.env.VITE_ANTHROPIC_KEY || '',
+          'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
+          model: 'claude-3-5-sonnet-20241022',
           max_tokens: 500,
           system: buildSystemPrompt(),
           messages: newHistory,
         }),
       });
 
-      if (!response.ok) throw new Error(`API ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`API Error ${response.status}: ${JSON.stringify(errorData)}`);
+      }
+
       const data = await response.json();
 
       // Parse JSON from Claude's response
@@ -519,7 +529,8 @@ When game_over is true and win is false (user complied):
       return result;
 
     } catch (err) {
-      console.error('Claude API error:', err);
+      console.error('Claude API error:', err.message);
+      console.error('Full error:', err);
       // Graceful fallback — use scenario pressure/payoff if API fails
       return {
         reply: scenario.tactics ? scenario.tactics[0]?.name || 'Please continue...' : 'Please continue...',
