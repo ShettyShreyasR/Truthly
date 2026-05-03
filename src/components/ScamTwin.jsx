@@ -498,7 +498,7 @@ When game_over is true and win is false (user complied):
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
+          model: 'claude-opus-4-7',
           max_tokens: 500,
           system: buildSystemPrompt(),
           messages: newHistory,
@@ -520,6 +520,13 @@ When game_over is true and win is false (user complied):
       }
       const result = JSON.parse(raw.trim());
 
+      // Debug logging
+      console.log('Claude response parsed:', {
+        reply: result.reply?.substring(0, 50) + '...',
+        spotted_tactic_ids: result.spotted_tactic_ids,
+        game_over: result.game_over
+      });
+
       // Update history for next turn (include Claude's reply)
       setApiHistory([
         ...newHistory,
@@ -531,9 +538,9 @@ When game_over is true and win is false (user complied):
     } catch (err) {
       console.error('Claude API error:', err.message);
       console.error('Full error:', err);
-      // Graceful fallback — use scenario pressure/payoff if API fails
+      // Graceful fallback — generic response, never tactic names
       return {
-        reply: scenario.tactics ? scenario.tactics[0]?.name || 'Please continue...' : 'Please continue...',
+        reply: 'I need to think about that. Tell me more.',
         game_over: false,
         win: false,
         spotted_tactic_ids: [],
@@ -559,7 +566,11 @@ When game_over is true and win is false (user complied):
     const result = await callClaude(userText);
     setTyping(false);
 
-    // Update spotted tactics
+    // Sanitize reply — ensure no tactic data ends up in the chat
+    let cleanReply = (result.reply || '').trim();
+    if (!cleanReply) cleanReply = 'Please continue...';
+
+    // Update spotted tactics (separate from messages)
     if (result.spotted_tactic_ids?.length > 0) {
       setSpotted(prev => {
         const fresh = result.spotted_tactic_ids.filter(id => !prev.includes(id));
@@ -567,9 +578,9 @@ When game_over is true and win is false (user complied):
       });
     }
 
-    // Add scammer reply or system message
+    // Add scammer reply or system message (clean data only)
     const from = result.game_over ? 'system' : 'scammer';
-    setMessages(m => [...m, { id: Date.now() + 1, from, text: result.reply }]);
+    setMessages(m => [...m, { id: Date.now() + 1, from, text: cleanReply }]);
 
     // Add debrief as a second system message if present
     if (result.debrief) {
