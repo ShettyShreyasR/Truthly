@@ -8,6 +8,7 @@ import ScamTwin from './components/ScamTwin';
 import Panic from './components/Panic';
 import Learn from './components/Learn';
 import ScamDNA from './components/ScamDNA';
+import SafeTools from './components/SafeTools';
 import AssistPanel from './components/AssistPanel';
 import TweaksPanel, { useTweaks, TweakSection, TweakRadio, TweakButton, TweakSelect } from './components/TweaksPanel';
 
@@ -101,6 +102,7 @@ function App() {
       {page === 'panic' && <Panic profile={profile} onNav={goto} />}
       {page === 'learn' && <Learn profile={profile} onNav={goto} />}
       {page === 'dna' && <ScamDNA profile={profile} onNav={goto} />}
+      {page === 'tools' && <SafeTools profile={profile} />}
 
       {/* Tweaks Panel */}
       {showTweaks && TweaksPanel && (
@@ -129,6 +131,7 @@ function App() {
                 { value: 'dna', label: 'Scam DNA' },
                 { value: 'panic', label: 'Panic Mode' },
                 { value: 'learn', label: profile === 'kids' ? 'Game Zone' : 'Learn' },
+                { value: 'tools', label: profile === 'kids' ? 'Safety Kit' : 'Trusted Tools' },
               ]}
             />
           </TweakSection>

@@ -8,6 +8,7 @@ function Nav({ profile, onSwitchProfile, onNav, current, onPanic }) {
     { id: 'dna', label: profile === 'kids' ? '🧬 Quiz' : '🧬 Scam DNA' },
     { id: 'twin', label: profile === 'kids' ? 'Scam Twin' : 'Scam Twin' },
     { id: 'learn', label: profile === 'kids' ? 'Game Zone' : 'Learn' },
+    { id: 'tools', label: profile === 'kids' ? '🧰 Safety Kit' : '🔗 Trusted Tools' },
   ];
   return (
     <nav className="nav">
